@@ -2,8 +2,8 @@ const express = require('express');
 const { Issuer } = require('openid-client');
 const process = require('process');
 const { URLSearchParams } = require('url');
-const { config, DynamoDB } = require('aws-sdk');
 const bodyParser = require('body-parser');
+const dynamoClient = require('./dynamo_client');
 
 const ROOT_URL =  'https://deptva-eval.okta.com/oauth2/default/'
 const secret = "oauth_redirect_test";
@@ -18,94 +18,14 @@ const metadataRemove = [
   "claim_types_supported",
   "claims_parameter_supported",
 ]
-const TableName = "OAuthRequests"
-config.update({
-  accessKeyId: 'NONE',
-  region: 'us-west-2',
-  secretAccessKey: 'NONE',
-});
-
-const dynamo = new DynamoDB({
-  endpoint: 'http://localhost:8000',
-});
-
-function getFromDynamoBySecondary(client, key, value) {
-  const params = {
-    IndexName: `oauth_${key}_index`,
-    KeyConditionExpression: '#key= :k',
-    ExpressionAttributeNames: {
-      '#key': key,
-    },
-    ExpressionAttributeValues: {
-      ':k': {
-        'S': value,
-      },
-    },
-    TableName,
-  };
-
-  return new Promise((resolve, reject) => {
-    client.query(params, (err, data) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(data.Items[0]);
-      }
-    });
-  });
-}
-
-function getFromDynamoByState(client, state) {
-  const params = {
-    Key: {
-      "state": {
-        S: state,
-      },
-    },
-    TableName,
-  };
-
-  return new Promise((resolve, reject) => {
-    client.getItem(params, (err, data) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(data.Item);
-      }
-    });
-  });
-}
-
-function saveToDynamo(client, state, key, value) {
-  const params = {
-    ExpressionAttributeNames: {
-      "#K": key,
-    },
-    ExpressionAttributeValues: {
-      ":k": {
-        S: value,
-      },
-    },
-    Key: {
-      "state": {
-        S: state,
-      },
-    },
-    ReturnValues: "ALL_NEW",
-    UpdateExpression: "SET #K = :k",
-    TableName,
-  };
-
-  return new Promise((resolve, reject) => {
-    client.updateItem(params, (err, data) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(data);
-      }
-    });
-  });
-}
+const dynamo = dynamoClient.createClient(
+  'http://localhost:8000',
+  {
+    accessKeyId: 'NONE',
+    region: 'us-west-2',
+    secretAccessKey: 'NONE',
+  },
+);
 
 async function createIssuer() {
   return await Issuer.discover(ROOT_URL);
@@ -126,15 +46,15 @@ function startApp(issuer) {
 
   app.get('/redirect', async (req, res) => {
     const { state } = req.query;
-    await saveToDynamo(dynamo, state, "code", req.query.code);
+    await dynamoClient.saveToDynamo(dynamo, state, "code", req.query.code);
     const params = new URLSearchParams(req.query);
-    const document = await getFromDynamoByState(dynamo, state);
+    const document = await dynamoClient.getFromDynamoByState(dynamo, state);
     res.redirect(`${document.redirect_uri.S}?${params.toString()}`)
   });
 
   app.get('/authorize', async (req, res) => {
     const { state } = req.query;
-    await saveToDynamo(dynamo, state, "redirect_uri", req.query.redirect_uri)
+    await dynamoClient.saveToDynamo(dynamo, state, "redirect_uri", req.query.redirect_uri)
     const params = new URLSearchParams(req.query);
     params.set('redirect_uri', redirect_uri);
     res.redirect(`${issuer.metadata.authorization_endpoint}?${params.toString()}`)
@@ -154,16 +74,16 @@ function startApp(issuer) {
     let tokens, state;
     if (req.body.grant_type === 'refresh_token') {
       tokens = await client.refresh(req.body.refresh_token);
-      const document = await getFromDynamoBySecondary(dynamo, 'refresh_token', req.body.refresh_token);
+      const document = await dynamoClient.getFromDynamoBySecondary(dynamo, 'refresh_token', req.body.refresh_token);
       state = document.state.S;
-      await saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
+      await dynamoClient.saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
     } else if (req.body.grant_type === 'authorization_code') {
       tokens = await client.grant(
         {...req.body, redirect_uri }
       );
-      const document = await getFromDynamoBySecondary(dynamo, 'code', req.body.code);
+      const document = await dynamoClient.getFromDynamoBySecondary(dynamo, 'code', req.body.code);
       state = document.state.S;
-      await saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
+      await dynamoClient.saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
     } else {
       throw Error('Unsupported Grant Type');
     }
