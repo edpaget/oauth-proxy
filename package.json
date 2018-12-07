@@ -18,6 +18,7 @@
   "homepage": "https://github.com/department-of-veterans-affairs/oauth-proxy#readme",
   "dependencies": {
     "aws-sdk": "^2.372.0",
+    "body-parser": "^1.18.3",
     "express": "^4.16.4",
     "express-session": "^1.15.6",
     "openid-client": "^2.4.5"

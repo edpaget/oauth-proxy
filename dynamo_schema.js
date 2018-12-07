@@ -13,6 +13,8 @@ const dynamo = new DynamoDB({
 const tableParams = {
   AttributeDefinitions: [
     { AttributeName: 'state', AttributeType: 'S' },
+    { AttributeName: 'code', AttributeType: 'S' },
+    { AttributeName: 'refresh_token', AttributeType: 'S' },
   ],
   KeySchema: [
     { AttributeName: 'state', KeyType: 'HASH' },
@@ -21,6 +23,40 @@ const tableParams = {
     ReadCapacityUnits: 10,
     WriteCapacityUnits: 10
   },
+  GlobalSecondaryIndexes: [
+    {
+      IndexName: 'oauth_code_index',
+      KeySchema: [
+        {
+          AttributeName: 'code',
+          KeyType: 'HASH',
+        },
+      ],
+      Projection: {
+        ProjectionType: 'ALL',
+      },
+      ProvisionedThroughput: {
+        ReadCapacityUnits: 10,
+        WriteCapacityUnits: 10
+      },
+    },
+    {
+      IndexName: 'oauth_refresh_token_index',
+      KeySchema: [
+        {
+          AttributeName: 'refresh_token',
+          KeyType: 'HASH',
+        },
+      ],
+      Projection: {
+        ProjectionType: 'ALL',
+      },
+      ProvisionedThroughput: {
+        ReadCapacityUnits: 10,
+        WriteCapacityUnits: 10
+      },
+    },
+  ],
   TableName: 'OAuthRequests',
 };
 

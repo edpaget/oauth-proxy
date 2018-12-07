@@ -3,9 +3,11 @@ const { Issuer } = require('openid-client');
 const process = require('process');
 const { URLSearchParams } = require('url');
 const { config, DynamoDB } = require('aws-sdk');
+const bodyParser = require('body-parser');
 
 const ROOT_URL =  'https://deptva-eval.okta.com/oauth2/default/'
 const secret = "oauth_redirect_test";
+const redirect_uri = 'http://localhost:8080/redirect'
 const metadataRewrite = {
   authorization_endpoint: 'http://localhost:8080/authorize',
   token_endpoint: 'http://localhost:8080/token',
@@ -27,7 +29,33 @@ const dynamo = new DynamoDB({
   endpoint: 'http://localhost:8000',
 });
 
-function getFromDynamo(client, state) {
+function getFromDynamoByCode(client, code) {
+  const params = {
+    IndexName: 'oauth_code_index',
+    KeyConditionExpression: '#code = :c',
+    ExpressionAttributeNames: {
+      '#code': 'code',
+    },
+    ExpressionAttributeValues: {
+      ':c': {
+        'S': code,
+      },
+    },
+    TableName,
+  };
+
+  return new Promise((resolve, reject) => {
+    client.query(params, (err, data) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(data.Items[0]);
+      }
+    });
+  });
+}
+
+function getFromDynamoByState(client, state) {
   const params = {
     Key: {
       "state": {
@@ -86,9 +114,10 @@ async function createIssuer() {
 function startApp(issuer) {
   const app = express();
   const port = process.env.PORT || 8080;
+  app.use(bodyParser.urlencoded());
 
   app.get('/.well-known/smart-configuration.json', (req, res) => {
-    const metadata = Object.assign({}, issuer.metadata, metadataRewrite)
+    const metadata = {...issuer.metadata, ...metadataRewrite }
     res.send(metadataRemove.reduce((meta, keyToRemove) => {
       delete meta[keyToRemove];
       return meta;
@@ -96,26 +125,39 @@ function startApp(issuer) {
   });
 
   app.get('/redirect', async (req, res) => {
-    console.log(req.query);
     const { state } = req.query;
     await saveToDynamo(dynamo, state, "code", req.query.code);
     const params = new URLSearchParams(req.query);
-    const document = await getFromDynamo(dynamo, state);
-    console.log(document);
+    const document = await getFromDynamoByState(dynamo, state);
     res.redirect(`${document.redirect_uri.S}?${params.toString()}`)
   });
 
   app.get('/authorize', async (req, res) => {
-    console.log(req.query);
     const { state } = req.query;
     await saveToDynamo(dynamo, state, "redirect_uri", req.query.redirect_uri)
     const params = new URLSearchParams(req.query);
-    params.set('redirect_uri', 'http://localhost:8080/redirect');
+    params.set('redirect_uri', redirect_uri);
     res.redirect(`${issuer.metadata.authorization_endpoint}?${params.toString()}`)
   });
 
-  app.post('/token', (req, res) => {
-    console.log(req);
+  app.post('/token', async (req, res) => {
+    const [ client_id, client_secret ] = Buffer.from(
+      req.headers.authorization.match(/^Basic\s(.*)$/)[1], 'base64'
+    ).toString('utf-8').split(':');
+    const client = new issuer.Client({
+      client_id,
+      client_secret,
+      redirect_uris: [
+        'http://localhost:8080/redirect',
+      ],
+    });
+    const tokens = await client.grant(
+      {...req.body, redirect_uri }
+    );
+    const document = await getFromDynamoByCode(dynamo, req.body.code);
+    const state = document.state.S;
+    await saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
+    res.json({...tokens, state});
   });
 
   app.listen(port, () => console.log(`Example app listening on port ${port}!`));
