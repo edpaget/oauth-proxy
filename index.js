@@ -1,16 +1,21 @@
 const express = require('express');
 const { Issuer } = require('openid-client');
 const process = require('process');
-const { URLSearchParams } = require('url');
+const { URL, URLSearchParams } = require('url');
 const bodyParser = require('body-parser');
 const dynamoClient = require('./dynamo_client');
+const { processArgs } = require('./cli')
 
-const ROOT_URL =  'https://deptva-eval.okta.com/oauth2/default/'
-const secret = "oauth_redirect_test";
-const redirect_uri = 'http://localhost:8080/redirect'
+const config = processArgs();
+const { redirect_uri } = config;
 const metadataRewrite = {
-  authorization_endpoint: 'http://localhost:8080/authorize',
-  token_endpoint: 'http://localhost:8080/token',
+  authorization_endpoint: config.authorization_endpoint,
+  token_endpoint: config.token_endpoint,
+}
+const appRoutes = {
+  authorize: new URL(config.authorization_endpoint).pathname,
+  token: new URL(config.token_endpoint).pathname,
+  redirect: new URL(config.redirect_uri).pathname,
 }
 const metadataRemove = [
   "request_uri_parameter_supported",
@@ -19,21 +24,21 @@ const metadataRemove = [
   "claims_parameter_supported",
 ]
 const dynamo = dynamoClient.createClient(
-  'http://localhost:8000',
   {
-    accessKeyId: 'NONE',
-    region: 'us-west-2',
-    secretAccessKey: 'NONE',
+    accessKeyId: config.aws_id,
+    region: config.aws_region,
+    secretAccessKey: config.aws_secret,
   },
+  config.dynamo_local,
 );
 
 async function createIssuer() {
-  return await Issuer.discover(ROOT_URL);
+  return await Issuer.discover(config.upstream_issuer);
 }
 
 function startApp(issuer) {
   const app = express();
-  const port = process.env.PORT || 8080;
+  const { port } = config;
   app.use(bodyParser.urlencoded());
 
   app.get('/.well-known/smart-configuration.json', (req, res) => {
@@ -44,7 +49,7 @@ function startApp(issuer) {
     }, metadata));
   });
 
-  app.get('/redirect', async (req, res) => {
+  app.get(appRoutes.redirect, async (req, res) => {
     const { state } = req.query;
     await dynamoClient.saveToDynamo(dynamo, state, "code", req.query.code);
     const params = new URLSearchParams(req.query);
@@ -52,7 +57,7 @@ function startApp(issuer) {
     res.redirect(`${document.redirect_uri.S}?${params.toString()}`)
   });
 
-  app.get('/authorize', async (req, res) => {
+  app.get(appRoutes.authorize, async (req, res) => {
     const { state } = req.query;
     await dynamoClient.saveToDynamo(dynamo, state, "redirect_uri", req.query.redirect_uri)
     const params = new URLSearchParams(req.query);
@@ -60,17 +65,19 @@ function startApp(issuer) {
     res.redirect(`${issuer.metadata.authorization_endpoint}?${params.toString()}`)
   });
 
-  app.post('/token', async (req, res) => {
+  app.post(appRoutes.token, async (req, res) => {
     const [ client_id, client_secret ] = Buffer.from(
       req.headers.authorization.match(/^Basic\s(.*)$/)[1], 'base64'
     ).toString('utf-8').split(':');
+
     const client = new issuer.Client({
       client_id,
       client_secret,
       redirect_uris: [
-        'http://localhost:8080/redirect',
+        redirect_uri
       ],
     });
+
     let tokens, state;
     if (req.body.grant_type === 'refresh_token') {
       tokens = await client.refresh(req.body.refresh_token);
@@ -87,6 +94,7 @@ function startApp(issuer) {
     } else {
       throw Error('Unsupported Grant Type');
     }
+
     const tokenData = await client.introspect(tokens.access_token);
     if (tokenData.scope.split(' ').indexOf('launch/patient') > -1) {
       const { patient } = tokenData;
@@ -96,7 +104,7 @@ function startApp(issuer) {
     }
   });
 
-  app.listen(port, () => console.log(`Example app listening on port ${port}!`));
+  app.listen(port, () => console.log(`OAuth Proxy listening on port ${port}!`));
   return app;
 }
 

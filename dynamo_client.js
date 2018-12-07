@@ -2,10 +2,13 @@ const { config, DynamoDB } = require('aws-sdk');
 
 const TableName = "OAuthRequests"
 
-function createClient(endpoint, awsConfig) {
+function createClient(awsConfig, useLocal) {
   config.update(awsConfig);
 
-  return new DynamoDB({ endpoint });
+  if (useLocal) {
+    return new DynamoDB({ endpoint: 'http://localhost:8000' });
+  }
+  return new DynamoDB();
 }
 
 function getFromDynamoBySecondary(client, key, value) {
