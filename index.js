@@ -5,7 +5,7 @@ const session = require('express-session');
 const { URLSearchParams } = require('url');
 
 const ROOT_URL =  'https://deptva-eval.okta.com/oauth2/default/'
-const secret = "oauth_test";
+const secret = "oauth_redirect_test";
 const metadataRewrite = {
   authorization_endpoint: 'http://localhost:8080/authorize',
   token_endpoint: 'http://localhost:80080/token',
@@ -17,7 +17,6 @@ const metadataRemove = [
   "claims_parameter_supported",
 ]
 
-
 async function createIssuer() {
   return await Issuer.discover(ROOT_URL);
 }
@@ -28,7 +27,7 @@ function startApp(issuer) {
   app.use(session({ secret }));
 
   app.get('/.well-known/smart-configuration.json', (req, res) => {
-    const metadata = Object.assign(issuer.metadata, metadataRewrite)
+    const metadata = Object.assign({}, issuer.metadata, metadataRewrite)
     res.send(metadataRemove.reduce((meta, keyToRemove) => {
       delete meta[keyToRemove];
       return meta;
@@ -62,7 +61,7 @@ function startApp(issuer) {
 }
 
 (async () => {
-  try { 
+  try {
     const issuer = await createIssuer();
     startApp(issuer);
   } catch (error) {
