@@ -3,5 +3,5 @@
   "authorization_endpoint": "http://localhost:8080/authorization",
   "token_endpoint": "http://localhost:8080/token",
   "upstream_issuer": "https://deptva-eval.okta.com/oauth2/default",
-  "dynamo_local": true
+  "dynamo_local": "dynamodb:8000"
 }

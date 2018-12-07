@@ -11,3 +11,12 @@ services:
     volumes: 
       - .:/opt/
     command: sh -c "cd /opt && npm install && node dynamo_schema.js"
+  app:
+    build: .
+    depends_on:
+      - dynamodb
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/opt/app
+    command: "--config dev-config.json"

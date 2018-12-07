@@ -44,8 +44,6 @@ function processArgs() {
       dynamo_local: {
         description: "flag to use local DynamoDB instance",
         required: false,
-        default: false,
-        type: 'boolean',
       }
     })
     .wrap(yargs.terminalWidth())
