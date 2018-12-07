@@ -29,16 +29,16 @@ const dynamo = new DynamoDB({
   endpoint: 'http://localhost:8000',
 });
 
-function getFromDynamoByCode(client, code) {
+function getFromDynamoBySecondary(client, key, value) {
   const params = {
-    IndexName: 'oauth_code_index',
-    KeyConditionExpression: '#code = :c',
+    IndexName: `oauth_${key}_index`,
+    KeyConditionExpression: '#key= :k',
     ExpressionAttributeNames: {
-      '#code': 'code',
+      '#key': key,
     },
     ExpressionAttributeValues: {
-      ':c': {
-        'S': code,
+      ':k': {
+        'S': value,
       },
     },
     TableName,
@@ -151,13 +151,23 @@ function startApp(issuer) {
         'http://localhost:8080/redirect',
       ],
     });
-    const tokens = await client.grant(
-      {...req.body, redirect_uri }
-    );
-    const document = await getFromDynamoByCode(dynamo, req.body.code);
-    const state = document.state.S;
-    await saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
-    res.json({...tokens, state});
+    if (req.body.grant_type === 'refresh_token') {
+      const tokens = await client.refresh(req.body.refresh_token);
+      const document = await getFromDynamoBySecondary(dynamo, 'refresh_token', req.body.refresh_token);
+      const state = document.state.S;
+      await saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
+      res.json({...tokens, state});
+    } else if (res.body.grant_type === 'authorization_code') {
+      const tokens = await client.grant(
+        {...req.body, redirect_uri }
+      );
+      const document = await getFromDynamoBySeconday(dynamo, 'code', req.body.code);
+      const state = document.state.S;
+      await saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
+      res.json({...tokens, state});
+    } else {
+      throw Error('Unsupported Grant Type');
+    }
   });
 
   app.listen(port, () => console.log(`Example app listening on port ${port}!`));
