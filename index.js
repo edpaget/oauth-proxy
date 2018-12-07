@@ -151,22 +151,28 @@ function startApp(issuer) {
         'http://localhost:8080/redirect',
       ],
     });
+    let tokens, state;
     if (req.body.grant_type === 'refresh_token') {
-      const tokens = await client.refresh(req.body.refresh_token);
+      tokens = await client.refresh(req.body.refresh_token);
       const document = await getFromDynamoBySecondary(dynamo, 'refresh_token', req.body.refresh_token);
-      const state = document.state.S;
+      state = document.state.S;
       await saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
-      res.json({...tokens, state});
-    } else if (res.body.grant_type === 'authorization_code') {
-      const tokens = await client.grant(
+    } else if (req.body.grant_type === 'authorization_code') {
+      tokens = await client.grant(
         {...req.body, redirect_uri }
       );
-      const document = await getFromDynamoBySeconday(dynamo, 'code', req.body.code);
-      const state = document.state.S;
+      const document = await getFromDynamoBySecondary(dynamo, 'code', req.body.code);
+      state = document.state.S;
       await saveToDynamo(dynamo, state, 'refresh_token', tokens.refresh_token);
-      res.json({...tokens, state});
     } else {
       throw Error('Unsupported Grant Type');
+    }
+    const tokenData = await client.introspect(tokens.access_token);
+    if (tokenData.scope.split(' ').indexOf('launch/patient') > -1) {
+      const { patient } = tokenData;
+      res.json({...tokens, patient, state});
+    } else {
+      res.json({...tokens, state});
     }
   });
 
