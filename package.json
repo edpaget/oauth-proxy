@@ -1,0 +1,24 @@
+{
+  "name": "oauth-proxy",
+  "version": "1.0.0",
+  "description": "Proxies requests to Okta to conform to FHIR API standard",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/department-of-veterans-affairs/oauth-proxy.git"
+  },
+  "author": "Ed Paget",
+  "license": "CC0-1.0",
+  "bugs": {
+    "url": "https://github.com/department-of-veterans-affairs/oauth-proxy/issues"
+  },
+  "homepage": "https://github.com/department-of-veterans-affairs/oauth-proxy#readme",
+  "dependencies": {
+    "express": "^4.16.4",
+    "express-session": "^1.15.6",
+    "openid-client": "^2.4.5"
+  }
+}
